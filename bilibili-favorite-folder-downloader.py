@@ -23,6 +23,7 @@ class Downloader(threading.Thread):
         time.sleep(1)
         
         try:
+            error = []
             while self.queue.qsize() > 0 and not self.stopped():
                 video_id, output_dir = self.queue.get()
                 proc.stdin.write('id:{}, output_dir:{}\n'.format(video_id, output_dir))
@@ -30,14 +31,25 @@ class Downloader(threading.Thread):
                 
                 done = False
                 while not done and proc.poll() is None and not self.stopped():
-                    line = proc.stderr.readline()
-                    done = True if line == 'done\n' else False
+                    try:
+                        line = proc.stderr.readline()
+                        done = True if line == 'success\n' or line == 'failure\n' else False
+                    except UnicodeDecodeError:
+                        print('Get UnicodeDecodeError when download {}'.format(video_id))
+                        
+                if line == 'failure\n':
+                    error.append(video_id)
             
             proc.stdin.write('end\n')
             proc.stdin.flush()
             proc.wait()
+
+            if len(error):
+                print('Error id:')
+                print(error)
         
         except OSError:
+            print('Get error when download {}'.format(video_id))
             self.stop()
     
     def stop(self):
@@ -107,9 +119,22 @@ def get_args():
                         help='use --use_fav_name=True download to the same name of folder as the favorite folder')
     parser.add_argument('--thread', type=int, default=1,
                         help='use --thread={} to multi-thread download')
+    parser.add_argument('--exclude', type=str, default=None,
+                        help='use --exclude={} to exclude')
     args = parser.parse_args()
     
     return args
+
+
+def wait_worker_done(workers):
+    total_num = last_alive = now_alive = len(workers)
+    print('Waitting all download thread stop')
+    with tqdm(total=total_num, ascii=True) as pbar:
+        while now_alive > 0:
+            now_alive = check_worker_alive(workers)
+            if last_alive != now_alive:
+                pbar.update(last_alive - now_alive)
+                last_alive = now_alive
 
 
 if __name__ == '__main__':
@@ -121,6 +146,10 @@ if __name__ == '__main__':
     
     if args.user_id and not args.fav_id:
         fav_list = get_fav_list(args.user_id)
+        for fav in fav_list:
+            if fav['fav_id'] == args.exclude:
+                fav_list.remove(fav)
+        
         num_video = 0
         for i in range(len(fav_list)):
             fav_list[i] = get_video_list(fav_list[i]['fav_id'])
@@ -128,16 +157,19 @@ if __name__ == '__main__':
     
     elif not args.user_id and args.fav_id:
         fav_list = [get_video_list(args.fav_id)]
-    
+
+    video_check = []
     video_queue = queue.Queue()
     for fav in fav_list:
         if args.use_fav_name:
             output_dir = os.path.join(root, fav['fav_name'])
         else:
             output_dir = root
-        
+            
         for video in fav['video_list']:
-            video_queue.put((video['video_id'], output_dir))
+            if video['video_id'] not in video_check:
+                video_check.append(video['video_id'])
+                video_queue.put((video['video_id'], output_dir))
     
     workers = []
     for _ in range(args.thread):
@@ -164,13 +196,8 @@ if __name__ == '__main__':
         for worker in workers:
             worker.stop()
         
-        total_num = last_alive = now_alive = len(workers)
-        print('Waitting all download thread stop')
-        with tqdm(total=total_num, ascii=True) as pbar:
-            while now_alive > 0:
-                now_alive = check_worker_alive(workers)
-                if last_alive != now_alive:
-                    pbar.update(last_alive - now_alive)
-                    last_alive = now_alive
+        wait_worker_done(workers)
+        sys.exit(-1)
     
+    wait_worker_done(workers)
     print('Download Complete!')
