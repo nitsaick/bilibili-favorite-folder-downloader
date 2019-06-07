@@ -1,10 +1,11 @@
+import click
 import zmq
 from pathlib2 import Path
 
 from utils import REQ, DONE
 
 
-class DownloadItem:
+class Downloader:
     def __init__(self, video, output='/'):
         self.video = video
         self.output = Path(output)
@@ -28,10 +29,15 @@ class DownloadItem:
         print('\n' + '-' * 50 + '\n')
 
 
-if __name__ == '__main__':
+@click.command()
+@click.option('-p', '--port', help='port',
+              type=click.IntRange(1000, 65535, clamp=True), default=5555, show_default=True)
+@click.option('-t', '--wait_time', help='wait time',
+              type=click.IntRange(0, clamp=True), default=30000, show_default=True)
+def main(port, wait_time):
     context = zmq.Context()
     socket = context.socket(zmq.REQ)
-    socket.connect('tcp://localhost:5555')
+    socket.connect(f'tcp://localhost:{port}')
     
     poll = zmq.Poller()
     poll.register(socket, zmq.POLLIN)
@@ -39,11 +45,15 @@ if __name__ == '__main__':
     while True:
         socket.send_pyobj(REQ)
         
-        socks = dict(poll.poll(30000))
+        socks = dict(poll.poll(wait_time))
         if socks.get(socket) == zmq.POLLIN:
             item = socket.recv_pyobj()
-            if type(item) is not DownloadItem and item == DONE:
+            if type(item) is not Downloader and item == DONE:
                 break
             item()
         else:
             break
+
+
+if __name__ == '__main__':
+    main()

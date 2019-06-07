@@ -8,7 +8,7 @@ from pathlib2 import Path
 from tqdm import tqdm
 
 from bilibili import User, FavoriteFolder, Video
-from downloader import DownloadItem
+from downloader import Downloader
 from utils import REQ
 
 
@@ -71,7 +71,7 @@ def main(type, id, output, pubdate, fav_time, exclusion_fav, exclusion_video, po
     
     procs = []
     for i in range(thread):
-        proc = Popen([sys.executable, 'downloader.py'], bufsize=1, creationflags=CREATE_NEW_CONSOLE)
+        proc = Popen([sys.executable, 'downloader.py', '-p', str(port)], bufsize=1, creationflags=CREATE_NEW_CONSOLE)
         procs.append(proc)
     time.sleep(5)
     
@@ -84,12 +84,12 @@ def main(type, id, output, pubdate, fav_time, exclusion_fav, exclusion_video, po
             if not exclusion(video):
                 cmd = socket.recv_pyobj()
                 if cmd == REQ:
-                    socket.send_pyobj(DownloadItem(video, output))
+                    socket.send_pyobj(Downloader(video, output))
                     time.sleep(1)
                     download_count += 1
             else:
                 exclusion_count += 1
-            tbar.set_postfix(downloaded=download_count, exclusion=exclusion_count)
+            tbar.set_postfix(downloaded=download_count, excluded=exclusion_count)
             tbar.update()
     
     print('Waiting all download thread done')
